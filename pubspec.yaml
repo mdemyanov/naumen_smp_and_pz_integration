@@ -1,0 +1,21 @@
+name: pzdart
+description: PZ & Naumen SMP integration.
+version: 0.0.9
+#homepage: https:/naumen.ru
+#author: mdemyanov <mdemyanov@naumen.ru>
+
+environment:
+  sdk: '>=1.20.1 <2.0.0'
+
+dependencies:
+  http: ^0.11.0
+  intl: ^0.15.2
+#  path: ^1.4.1
+
+dev_dependencies:
+  browser: ^0.10.0
+  dart_to_js_script_rewriter: ^1.0.1
+
+transformers:
+- dart_to_js_script_rewriter
+
