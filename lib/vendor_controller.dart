@@ -50,7 +50,7 @@ class VendorController {
   String _connectionUrl;
   String _login;
   String _password;
-  String _clientType = 'jsapi';
+  String _clientType = 'itsm365';
   String _broadcastGroup = '';
   int _broadcastEventsMask = 0;
   int _protocolVersion = 1;

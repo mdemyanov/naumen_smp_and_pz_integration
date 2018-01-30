@@ -18,7 +18,7 @@ class TabController {
   Storage _localStorage;
   Storage _sessionStorage;
   String _prefix;
-  int _tabNumber;
+  int _tabNumber = 0;
   StreamController _onTabController;
   List<String> _listenOnFocus;
 
@@ -31,52 +31,65 @@ class TabController {
     this._onTabController = new StreamController.broadcast();
     this._listenOnFocus = listenOnFocus;
   }
+// Определяем события для контроля
+  void watchWindow() {
+    _window.onLoad.listen(checkLoad);
+    _window.onStorage.listen(checkStorage);
+    _window.onFocus.listen(checkFocus);
+    _window.onBlur.listen(checkBlur);
+    _window.onUnload.listen(checkUnload);
+    _window.onBeforeUnload.listen(checkRefresh);
+  }
 
-  Stream<CustomEvent> get onActions {
-//    Действия на загрузку окна
-    _window.onLoad.listen((event) {
-      addToStorage();
-      if (checkMaster()) {
-        _onTabController.add(new CustomEvent(MASTER));
-      }
-      setActive();
-      _onTabController.add(new CustomEvent(LOAD));
-    });
-//    Действия на обновление localStorage в других вкладках
-    window.onStorage.listen((event) {
+// Проверим вкладку после загрузки
+  void checkLoad(Event event) {
+    addToStorage();
+    setActive();
+    if (checkMaster()) {
+      _onTabController.add(new CustomEvent(MASTER));
+    }
+    _onTabController.add(new CustomEvent(LOAD));
+  }
+//  Следим за обновлениями на других вкладках
+  void checkStorage(StorageEvent event) {
 //      Треуется ли открыть новое окно: если, отправляем событие
-      if (isWindowToOpen(event)) {
-        _onTabController.add(new CustomEvent(WIN_TO_OPEN, detail: event.newValue));
-      }
+    if (isWindowToOpen(event)) {
+      _onTabController
+          .add(new CustomEvent(WIN_TO_OPEN, detail: event.newValue));
+    }
 //    Проверить обновление стека - нужен ли выбор мастера
-      if (checkUpdates(event)) {
-        _onTabController.add(new CustomEvent(MASTER));
-      } else if(isMaster() == false){
-        _onTabController.add(new CustomEvent(SLAVE));
-      }
-      if (checkFocusEvents(event)) {
-        _onTabController.add(new CustomEvent(FOCUS, detail: event));
-      }
-    });
-//    Если в фокусе
-    _window.onFocus.listen((event) {
-      setActive();
-      _onTabController.add(new CustomEvent(FOCUS));
-    });
-//    Если ушли с фокуса
-    _window.onBlur.listen((event) {
-      _onTabController.add(new CustomEvent(BLUR));
-    });
+    if (checkUpdates(event)) {
+      _onTabController.add(new CustomEvent(MASTER));
+    } else if (isMaster() == false) {
+      _onTabController.add(new CustomEvent(SLAVE));
+    }
+    if (checkFocusEvents(event)) {
+      _onTabController.add(new CustomEvent(FOCUS, detail: event));
+    }
+  }
+// Вкладка в фокусе
+  void checkFocus(Event event) {
+    setActive();
+    _onTabController.add(new CustomEvent(FOCUS));
+  }
+// Фокус ушел с вкладки
+  void checkBlur(Event event) {
+    _onTabController.add(new CustomEvent(BLUR));
+  }
 //    Пользователь закрыл вкладку
-    _window.onUnload.listen((event) {
-      remove();
-      _onTabController.add(new CustomEvent(CLOSE));
-    });
-//    Пользователь обновляет вкладку
-    _window.onBeforeUnload.listen((event) {
-      remove();
-      _onTabController.add(new CustomEvent(REFRESH));
-    });
+  void checkUnload(Event event) {
+    remove();
+    _onTabController.add(new CustomEvent(CLOSE));
+  }
+  //    Пользователь обновил вкладку
+  void checkRefresh(Event event) {
+    remove();
+    _onTabController.add(new CustomEvent(REFRESH));
+  }
+// Поток событий на вкладке
+  Stream<CustomEvent> get onActions {
+//    Вешаем обработчик событйи на вкладке
+    watchWindow();
 //    Возвращаем поток событий
     return _onTabController.stream;
   }
@@ -85,13 +98,13 @@ class TabController {
     List<int> stack = [];
     if (_localStorage.containsKey('$_prefix:stack')) {
       try {
-        stack = JSON.decode(_localStorage['$_prefix:stack']);
-        _tabNumber = stack.reduce(max) + 1;
+        stack = getStack();
+        if (stack.length > 0) {
+          _tabNumber = stack.reduce(max) + 1;
+        }
       } catch (e) {
-        _tabNumber = 0;
+        print('Ошибка при получении стека и номера вкладки: ${e.toString()}');
       }
-    } else {
-      _tabNumber = 0;
     }
     stack.add(_tabNumber);
     _sessionStorage['$_prefix:current'] = _tabNumber.toString();
@@ -104,26 +117,30 @@ class TabController {
       return true;
     }
     if (_localStorage['$_prefix:master'] == '' || checkMasterDead()) {
-      List<int> stack = JSON.decode(_localStorage['$_prefix:stack']);
+      List<int> stack = getStack();
       _localStorage['$_prefix:master'] = stack.reduce(min).toString();
     }
-    return _localStorage['$_prefix:master'] == _tabNumber.toString();
+    return getMaster() == _tabNumber;
   }
 
   bool checkMasterDead() {
-    if(_localStorage.containsKey('$_prefix:master')) {
+    if (_localStorage.containsKey('$_prefix:master')) {
       return !getStack().contains(getMaster());
     }
     return false;
   }
 
   void remove() {
-    List<int> stack = JSON.decode(_localStorage['$_prefix:stack']);
+    List<int> stack = getStack();
     stack.remove(_tabNumber);
     _localStorage['$_prefix:stack'] = JSON.encode(stack);
-    _localStorage['$_prefix:active'] = stack.reduce(max).toString();
+    if(stack.length > 0 && (!_localStorage.containsKey('$_prefix:active') || _localStorage['$_prefix:active'] == 'null')) {
+      _localStorage['$_prefix:active'] = stack.reduce(max).toString();
+    } else {
+      _localStorage.remove('$_prefix:active');
+    }
     if (_localStorage['$_prefix:master'] == _tabNumber.toString()) {
-      _localStorage['$_prefix:master'] = '';
+      _localStorage.remove('$_prefix:master');
     }
   }
 
@@ -133,18 +150,38 @@ class TabController {
 
   void openWindow(String url, String name) => _window.open(url, name);
 
-  List<int> getStack() => JSON.decode(_localStorage['$_prefix:stack']);
+  List<int> getStack() {
+    if (_localStorage.containsKey('$_prefix:stack')) {
+      return JSON.decode(_localStorage['$_prefix:stack']);
+    } else {
+      putToLocalStorage('stack', '[]');
+      return [];
+    }
+  }
 
-  int getMaster() => int.parse(_localStorage['$_prefix:master']);
+  int getIntKey(String key) {
+    if(_localStorage.containsKey('$_prefix:$key')) {
+      try {
+        return int.parse(_localStorage['$_prefix:$key']);
+      } catch(e) {
+        print(e);
+        return 0;
+      }
+    }
+    return 0;
+  }
+  int getMaster() => getIntKey('master');
+  int getActive() => getIntKey('active');
+
 
   String getPrefix() => _prefix;
 
   void setStorageListener(listener) => _window.onStorage.listen(listener);
 
   bool checkUpdates(StorageEvent event) {
-    if (event.key == '$_prefix:master' && event.newValue == '') {
+    if (event.key == '$_prefix:master' && (event.newValue == '' || event.newValue == null)) {
       return checkMaster();
-    } else if(checkMasterDead()) {
+    } else if (checkMasterDead()) {
       return checkMaster();
     }
     return false;
@@ -161,13 +198,26 @@ class TabController {
     return false;
   }
 
-  bool isActive() => _localStorage['$_prefix:active'] == _sessionStorage['$_prefix:current'];
-  bool isMaster() => _localStorage['$_prefix:master'] == _sessionStorage['$_prefix:current'];
+  bool isActive() {
+    if (_localStorage.containsKey('$_prefix:active') && _localStorage['$_prefix:active'] != null) {
+      return _localStorage['$_prefix:active'] == _sessionStorage['$_prefix:current'];
+    } else if (_localStorage.containsKey('$_prefix:master')) {
+      return _localStorage['$_prefix:master'] == _sessionStorage['$_prefix:current'];
+    } else {
+      _window.console.error('Нет ни мастера ни активной вкладки!');
+      return false;
+    }
+  }
+
+  bool isMaster() =>
+      _localStorage['$_prefix:master'] == _sessionStorage['$_prefix:current'];
 
   void putToLocalStorage(String key, String value) {
     _localStorage['$_prefix:$key'] = value;
   }
-  void removeFromLocalStorage(String key) => _localStorage.remove('$_prefix:$key');
+
+  void removeFromLocalStorage(String key) =>
+      _localStorage.remove('$_prefix:$key');
 
   bool checkFocusEvents(StorageEvent event) =>
       _listenOnFocus.contains(event.key) ? event.newValue != null : false;

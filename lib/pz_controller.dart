@@ -3,7 +3,7 @@ import 'dart:html';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
-final eventAttr = new RegExp(r"\s(\w+)=\W([\+\w]+)\W");
+final eventAttr = new RegExp(r"\s(\w+)=\W([\+-=\w:/\.]+)\W");
 final hasPort = new RegExp(r":\d+$");
 final hasProtocol = new RegExp(r"^wss?p?://");
 
@@ -50,7 +50,7 @@ class VendorController {
   String _connectionUrl;
   String _login;
   String _password;
-  String _clientType = 'jsapi';
+  String _clientType = 'itsm365';
   String _broadcastGroup = '';
   int _broadcastEventsMask = 0;
   int _protocolVersion = 1;
@@ -61,7 +61,8 @@ class VendorController {
   VendorController.fromJson(Map account) {
     this._login = account['login'];
     this._url = normalizeUrl(account['url']);
-    this._password = normalizePassword(account['password'] != null ? account['password'] : '');
+    this._password = normalizePassword(
+        account['password'] != null ? account['password'] : '');
     this._connectionUrl = '$_url/'
         '?CID=$_password'
         '&CT=$_clientType'
@@ -85,7 +86,7 @@ class VendorController {
   static String normalizePassword(String password) => normalizeString(password);
 
   static String parseMsg(String message, bool secure) {
-    if(secure == false) {
+    if (secure == false) {
       message = new String.fromCharCodes(BASE64.decode(message));
     }
     return message;
@@ -103,12 +104,32 @@ class VendorController {
 
   bool connect() {
     try {
+      print('Пробую подключиться к $_connectionUrl');
       _webSocket = new WebSocket(_connectionUrl);
       _isConnected = true;
     } catch (e) {
-      handleError(e);
+      handleError('При подключении к $_connectionUrl возникла ошибка', e);
     }
     return _isConnected;
+  }
+
+  bool isConnected() => _isConnected;
+
+  void close() {
+    try {
+      _webSocket.close();
+      print('Отключился от $_connectionUrl');
+    } catch (e) {
+      handleError('Возникла ошибка, при попытке отключиться от $_connectionUrl', e);
+    }
+  }
+
+  bool disconnect() {
+    if (_isConnected) {
+      close();
+      return true;
+    }
+    return false;
   }
 
   bool sendMessage(String message) {
@@ -128,8 +149,7 @@ class VendorController {
       if (event != null) {
         _streamController.add(event);
       }
-    })
-        .onError(handleError);
+    }).onError(handleError);
     return _streamController.stream;
   }
 
@@ -161,8 +181,9 @@ class VendorController {
           case startTime:
           case endTime:
             var formatter = new DateFormat('yyyy.MM.dd HH:mm:ss');
-            DateTime dt =
-            new DateTime.fromMillisecondsSinceEpoch(int.parse(value) * 1000, isUtc: true);
+            DateTime dt = new DateTime.fromMillisecondsSinceEpoch(
+                int.parse(value) * 1000,
+                isUtc: true);
             data[allAttrs[vendorKey]] = formatter.format(dt);
             break;
           case duration:
@@ -206,11 +227,16 @@ class VendorController {
 
   void transfer(String number) =>
       _webSocket.send(prepareRequest('Transfer', number));
-  void handleError(e) => window.console.error(e);
+
+
+  void handleError(e, [String msg = 'Ошибка']) =>
+      window.console.error('$msg: ${e.toString()}');
 
   void printEvent(String rawEvent, Map eventData) {
     window.console.group(rawEvent);
-    eventData.forEach((key, value){window.console.log('$key: $value');});
+    eventData.forEach((key, value) {
+      window.console.log('$key: $value');
+    });
     window.console.groupEnd();
   }
 }

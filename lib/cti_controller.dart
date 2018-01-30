@@ -29,19 +29,22 @@ class CtiController {
   StreamController _callActions;
   bool _connected = false;
 
-  CtiController(String userId, TabController currentTab) {
+  CtiController(String userId) {
     this._userId = userId;
-    this._tab = currentTab;
-    this._prefix = currentTab.getPrefix();
     this._callActions = new StreamController.broadcast();
   }
 
+  void setTab(TabController tab) {
+    _tab = tab;
+    _prefix = tab.getPrefix();
+  }
+
   Future<List> getAccounts() =>
-      NsmpRest.find('$_getAccountUrl/{employee:$_userId}');
+      NsmpRest.find('$_getAccountUrl/{employee:$_userId,state: \'registered\'}');
 
   Future<Map> getAccount(String vendor) {
     print('$_getAccountUrl\$$vendor/{employee:$_userId}');
-    return NsmpRest.findFirst('$_getAccountUrl\$$vendor/{employee:$_userId}');
+    return NsmpRest.findFirst('$_getAccountUrl\$$vendor/{employee:$_userId,state: \'registered\'}');
   }
 
   void printEvent(CustomEvent event) {
@@ -51,11 +54,12 @@ class CtiController {
 
   void storageListener(StorageEvent event) {
     String key = event.key.split('$_prefix:').last;
-    print('${event.key} -- $key');
     switch (key) {
       case openWindow:
         if(_tab.isActive()) {
+          print('Активная вкладка - открываем окно: ${event.newValue}');
           _tab.openWindow(event.newValue, event.newValue);
+          _tab.removeFromLocalStorage('openWindow');
         }
         break;
       case 'makeCall':
