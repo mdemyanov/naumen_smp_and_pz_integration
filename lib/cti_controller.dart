@@ -1,6 +1,8 @@
 import 'dart:async';
-import 'package:pzdart/tab_controller.dart';
 import 'dart:html';
+
+import 'package:pzdart/tab_controller.dart';
+
 import 'nsmp_rest.dart';
 
 const String interactionFqn = 'interaction';
@@ -25,6 +27,7 @@ class CtiController {
   TabController _tab;
   static const String _getAccountUrl = '/account';
   String _userId = '';
+  String _account;
   String _prefix;
   StreamController _callActions;
   bool _connected = false;
@@ -49,7 +52,7 @@ class CtiController {
 
   void printEvent(CustomEvent event) {
     print(event.type);
-    print(event.detail);
+    print(event?.detail != null ? event?.detail : '');
   }
 
   void storageListener(StorageEvent event) {
@@ -73,18 +76,23 @@ class CtiController {
 
   Future eventListener(CustomEvent event) async {
     print(event.type);
+    print(event.detail);
     Map data = {};
     new Map.from(event.detail).forEach((key, value) {
       if (transformRule.containsKey(key)) {
         data[transformRule[key]] = value;
       }
     });
-    String fqn = event.detail['direction'] == '1' ? outgoingFqn : incomingFqn;
+    String fqn = outgoingFqn;
+    if(['incoming', 'incomingAnswer'].contains(event.type)) {
+      fqn = incomingFqn;
+    }
     String callID = event.detail['callID'];
     Map interaction =
         await NsmpRest.findFirst('/$interactionFqn/{$idHolder:${callID}}');
     bool openInteractionCard =
         (interaction == null || interaction.length == 0) ? true : false;
+    print('call switch');
     switch (event.type) {
       case 'incoming':
         break;
@@ -93,11 +101,14 @@ class CtiController {
       case 'transfer':
         break;
       case 'history':
+        fqn = event.detail['direction'] == '1' ? outgoingFqn : incomingFqn;
         interaction = await processEvent(data, interaction, fqn, callID);
         windowOpenAction(openInteractionCard, interaction);
         break;
       case 'outgoingAnswer':
-        var serviceCall = getSourceUUID('serviceCall');
+        var serviceCall = getCallFromUUID('serviceCall', _tab);
+        print('Source ' + _tab.getKey('callFromCard').toString());
+        print('Scall ' + (serviceCall == null).toString());
         if (serviceCall != null) {
           data.addAll({'serviceCall': serviceCall});
         }
@@ -140,6 +151,11 @@ class CtiController {
   }
 
   void makeCall(String number) {
+    _tab.removeFromLocalStorage('makeCall');
+    if(_tab.isActive()){
+      _tab.removeFromLocalStorage('callFromCard');
+      _tab.putToLocalStorage('callFromCard', _tab.getCurrentHash());
+    }
     if(_connected) {
       _callActions.add(new CustomEvent('makeCall', detail: number));
     } else {
@@ -166,6 +182,15 @@ class CtiController {
 
 String getSourceUUID(String fqn) {
   Match match = uid.firstMatch(window.location.hash);
+  if (match != null) {
+    String uuid = match.group(1);
+    return uuid.contains(fqn) ? uuid : null;
+  }
+  return null;
+}
+
+String getCallFromUUID(String fqn, TabController tab) {
+  Match match = uid.firstMatch(tab.getKey('callFromCard').toString());
   if (match != null) {
     String uuid = match.group(1);
     return uuid.contains(fqn) ? uuid : null;

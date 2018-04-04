@@ -1,11 +1,15 @@
 import 'dart:convert';
 import 'dart:html';
 import 'dart:async';
+
 import 'package:intl/intl.dart';
+
+import 'nsmp_rest.dart';
 
 final eventAttr = new RegExp(r"\s(\w+)=\W([\+-=\w:/\.]+)\W");
 final hasPort = new RegExp(r":\d+$");
 final hasProtocol = new RegExp(r"^wss?p?://");
+final DateFormat formatter = new DateFormat('yyyy.MM.dd HH:mm:ss');
 
 final Map eventTypes = {
   '1': 'transfer',
@@ -49,6 +53,7 @@ class VendorController {
   String _url;
   String _connectionUrl;
   String _login;
+  String _uuid;
   String _password;
   String _clientType = 'itsm365';
   String _broadcastGroup = '';
@@ -57,9 +62,11 @@ class VendorController {
   String _defaultPort = ':10150';
   String _defaultProtocol = 'ws://';
   StreamController _streamController;
+  Duration _updatePeriod = const Duration(minutes: 10);
 
   VendorController.fromJson(Map account) {
     this._login = account['login'];
+    this._uuid = account['UUID'];
     this._url = normalizeUrl(account['url']);
     this._password = normalizePassword(
         account['password'] != null ? account['password'] : '');
@@ -102,11 +109,18 @@ class VendorController {
     return url;
   }
 
-  bool connect() {
+  bool connect([String request = null]) {
     try {
       print('Пробую подключиться к $_connectionUrl');
       _webSocket = new WebSocket(_connectionUrl);
       _isConnected = true;
+      if (request != null) {
+        _webSocket.onOpen.listen((onOpenData) {
+          _webSocket.send(request);
+        });
+      }
+      _webSocket.onMessage.listen(getVendorEvents);
+      updateLastConnection();
     } catch (e) {
       handleError('При подключении к $_connectionUrl возникла ошибка', e);
     }
@@ -116,11 +130,14 @@ class VendorController {
   bool isConnected() => _isConnected;
 
   void close() {
-    try {
-      _webSocket.close();
-      print('Отключился от $_connectionUrl');
-    } catch (e) {
-      handleError('Возникла ошибка, при попытке отключиться от $_connectionUrl', e);
+    if (isConnected()) {
+      try {
+        _webSocket.close();
+        print('Отключился от $_connectionUrl');
+      } catch (e) {
+        handleError(
+            'Возникла ошибка, при попытке отключиться от $_connectionUrl', e);
+      }
     }
   }
 
@@ -143,17 +160,19 @@ class VendorController {
   }
 
   Stream<CustomEvent> get events {
-    _webSocket.onMessage.listen((vendorEvent) {
-      print(vendorEvent.data);
-      CustomEvent event = getEvent(parseEvent(vendorEvent));
-      if (event != null) {
-        _streamController.add(event);
-      }
-    }).onError(handleError);
     return _streamController.stream;
   }
 
+  void getVendorEvents(MessageEvent vendorEvent) {
+    print(vendorEvent.data);
+    CustomEvent event = getEvent(parseEvent(vendorEvent));
+    if (event != null) {
+      _streamController.add(event);
+    }
+  }
+
   StreamSubscription addEventListener(listener) => events.listen(listener);
+
 
   CustomEvent getEvent(Map event) {
     try {
@@ -180,7 +199,6 @@ class VendorController {
         switch (vendorKey) {
           case startTime:
           case endTime:
-            var formatter = new DateFormat('yyyy.MM.dd HH:mm:ss');
             DateTime dt = new DateTime.fromMillisecondsSinceEpoch(
                 int.parse(value) * 1000,
                 isUtc: true);
@@ -222,12 +240,37 @@ class VendorController {
     return request;
   }
 
-  void makeCall(String number) => _webSocket
-      .send(prepareRequest('Call', '<From>$_login</From><To>$number</To>'));
+  void makeCall(String number) =>
+      sendWsMessage(
+          prepareRequest('Call', '<From>$_login</From><To>$number</To>'));
 
   void transfer(String number) =>
-      _webSocket.send(prepareRequest('Transfer', number));
+      sendWsMessage(prepareRequest('Transfer', number));
 
+  void sendWsMessage(String request) {
+    if (!_isConnected) {
+      print("PZ: нет соединения, не могу послать вызов.");
+      return;
+    }
+    switch (_webSocket.readyState) {
+      case 0:
+        _webSocket.onOpen.listen((onData) {
+          _webSocket.send(request);
+        });
+        break;
+      case 1:
+        _webSocket.send(request);
+        break;
+      case 2:
+        print("PZ: идет отключение от канала, не могу послать вызов.");
+        break;
+      case 3:
+        connect();
+        _webSocket.onOpen.listen((onOpenData) {
+          _webSocket.send(request);
+        });
+    }
+  }
 
   void handleError(e, [String msg = 'Ошибка']) =>
       window.console.error('$msg: ${e.toString()}');
@@ -238,5 +281,16 @@ class VendorController {
       window.console.log('$key: $value');
     });
     window.console.groupEnd();
+  }
+
+  Map getBindings() {
+    return {'disconnect': disconnect};
+  }
+
+  void updateLastConnection() {
+    if (_uuid != null) {
+      print('Успешно подключился.');
+      //NsmpRest.edit('/$_uuid', {'lastConnection':formatter.format(new DateTime.now())});
+    }
   }
 }

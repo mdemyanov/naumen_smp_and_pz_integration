@@ -61,18 +61,13 @@ class NsmpRest {
   }
 
   static Future<String> edit(String url, Map data) async {
-    print(data);
-    print('try encode');
     String body = JSON.encode(data);
-    print(body);
     try {
-
       final response = await _http.post(
           '$_edit$url',
           headers: _headers,
           body: body
       );
-      print(response.request.toString());
       return response.body;
     } catch (e) {
       print(e.toString());
