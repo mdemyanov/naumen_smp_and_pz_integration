@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:html';
 
-import 'package:pzdart/tab_controller.dart';
+import 'package:naumen_smp_jsapi/naumen_smp_jsapi.dart';
 
-import 'nsmp_rest.dart';
+import 'package:pzdart/src/tab/tab_controller.dart';
+import 'pz_controller.dart';
+import 'pz_account.dart';
+import 'pz_event.dart';
 
 const String interactionFqn = 'interaction';
 const String incomingFqn = 'interaction\$incomingCall';
@@ -12,7 +15,7 @@ const String idHolder = 'idHolder';
 const String openWindow = 'openWindow';
 const String newCall = 'newCall';
 
-final Map transformRule = {
+final Map<String, String> transformRule = {
   'from': 'fromText',
   'to': 'toText',
   'startTime': 'startTime',
@@ -25,74 +28,63 @@ final uid = new RegExp(r"#uuid:(\w+\$\d+)");
 
 class CtiController {
   TabController _tab;
-  static const String _getAccountUrl = '/account';
-  String _userId = '';
-  String _account;
+  VendorController _vendorController;
   String _prefix;
-  StreamController _callActions;
-  bool _connected = false;
+  StreamController<CustomEvent> _callActions;
 
-  CtiController(String userId) {
-    this._userId = userId;
-    this._callActions = new StreamController.broadcast();
-  }
-
-  void setTab(TabController tab) {
+  CtiController(VendorAccount account, TabController tab) {
     _tab = tab;
     _prefix = tab.getPrefix();
+    _vendorController = VendorController(account);
+    this._callActions = new StreamController<CustomEvent>();
   }
 
-  Future<List> getAccounts() =>
-      NsmpRest.find('$_getAccountUrl/{employee:$_userId,state: \'registered\'}');
+  bool get connected => _vendorController.connected;
 
-  Future<Map> getAccount(String vendor) {
-    print('$_getAccountUrl\$$vendor/{employee:$_userId}');
-    return NsmpRest.findFirst('$_getAccountUrl\$$vendor/{employee:$_userId,state: \'registered\'}');
+  bool connect() {
+    if (connected) {
+      return true;
+    }
+    if (_vendorController.connect()) {
+      callActions.listen(_vendorController.actionListener);
+      _vendorController.events.listen(eventListener);
+      return true;
+    }
+    return false;
   }
 
-  void printEvent(CustomEvent event) {
-    print(event.type);
-    print(event?.detail != null ? event?.detail : '');
-  }
+  bool disconnect() => _vendorController.disconnect();
 
   void storageListener(StorageEvent event) {
     String key = event.key.split('$_prefix:').last;
     switch (key) {
       case openWindow:
-        if(_tab.isActive()) {
+        if (_tab.isActive()) {
           print('Активная вкладка - открываем окно: ${event.newValue}');
           _tab.openWindow(event.newValue, event.newValue);
           _tab.removeFromLocalStorage('openWindow');
         }
         break;
       case 'makeCall':
-        if(_connected && event.newValue != null) {
+        if (connected && event.newValue != null) {
           makeCall(event.newValue);
           _tab.removeFromLocalStorage('makeCall');
         }
         break;
     }
   }
-
-  Future eventListener(CustomEvent event) async {
-    print(event.type);
-    print(event.detail);
-    Map data = {};
-    new Map.from(event.detail).forEach((key, value) {
-      if (transformRule.containsKey(key)) {
-        data[transformRule[key]] = value;
-      }
-    });
-    String fqn = outgoingFqn;
-    if(['incoming', 'incomingAnswer'].contains(event.type)) {
-      fqn = incomingFqn;
-    }
-    String callID = event.detail['callID'];
+  // 'from': 'fromText',
+  //  'to': 'toText',
+  //  'startTime': 'startTime',
+  //  'endTime': 'endTime',
+  //  'duration': 'activeTime',
+  //  'record': 'linkToRecord'
+  Future eventListener(VendorEvent event) async {
+    Map<String, String> data = event.toMap();
     Map interaction =
-        await NsmpRest.findFirst('/$interactionFqn/{$idHolder:${callID}}');
+        await SmpAPI.findFirst('/$interactionFqn/{$idHolder:${event.callID}}');
     bool openInteractionCard =
         (interaction == null || interaction.length == 0) ? true : false;
-    print('call switch');
     switch (event.type) {
       case 'incoming':
         break;
@@ -101,24 +93,23 @@ class CtiController {
       case 'transfer':
         break;
       case 'history':
-        fqn = event.detail['direction'] == '1' ? outgoingFqn : incomingFqn;
-        interaction = await processEvent(data, interaction, fqn, callID);
+        interaction = await processEvent(data, interaction, event.fqn, event.callID);
         windowOpenAction(openInteractionCard, interaction);
         break;
       case 'outgoingAnswer':
-        var serviceCall = getCallFromUUID('serviceCall', _tab);
+        String serviceCall = getCallFromUUID('serviceCall', _tab);
         print('Source ' + _tab.getKey('callFromCard').toString());
         print('Scall ' + (serviceCall == null).toString());
         if (serviceCall != null) {
           data.addAll({'serviceCall': serviceCall});
         }
         interaction =
-            await processEvent(data, interaction, outgoingFqn, callID);
+            await processEvent(data, interaction, outgoingFqn, event.callID);
         windowOpenAction(true, interaction);
         break;
       case 'incomingAnswer':
         interaction =
-            await processEvent(data, interaction, incomingFqn, callID);
+            await processEvent(data, interaction, incomingFqn, event.callID);
         windowOpenAction(true, interaction);
         break;
     }
@@ -129,9 +120,9 @@ class CtiController {
     print('interaction');
     if (interaction == null || interaction.length == 0) {
       data[idHolder] = callID;
-      interaction = await NsmpRest.create('/$fqn', data);
+      interaction = await SmpAPI.create('/$fqn', data);
     } else {
-      NsmpRest.edit('/${interaction['UUID']}', data);
+      SmpAPI.edit('/${interaction['UUID']}', data);
     }
     print(interaction);
     return interaction;
@@ -152,11 +143,11 @@ class CtiController {
 
   void makeCall(String number) {
     _tab.removeFromLocalStorage('makeCall');
-    if(_tab.isActive()){
+    if (_tab.isActive()) {
       _tab.removeFromLocalStorage('callFromCard');
       _tab.putToLocalStorage('callFromCard', _tab.getCurrentHash());
     }
-    if(_connected) {
+    if (connected) {
       _callActions.add(new CustomEvent('makeCall', detail: number));
     } else {
       _tab.putToLocalStorage('makeCall', number);
@@ -165,19 +156,8 @@ class CtiController {
 
   Stream<CustomEvent> get callActions => _callActions.stream;
 
-  StreamSubscription addCallActionListener(listener) => callActions.listen(listener);
-
-  bool setConnected() => _connected = true;
-
-  bool isConnected() => _connected;
-
-  Map getBindings() {
-    return {
-      'call': makeCall,
-      'isConnected': isConnected
-    };
-  }
-
+  Map<String, dynamic> get bindings =>
+      <String, dynamic>{'call': makeCall, 'isConnected': connected};
 }
 
 String getSourceUUID(String fqn) {

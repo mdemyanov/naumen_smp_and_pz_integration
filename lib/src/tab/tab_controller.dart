@@ -14,6 +14,8 @@ const String CLOSE = 'close';
 const String REFRESH = 'refresh';
 const String WIN_TO_OPEN = 'windowToOpen';
 
+typedef void StorageEventListener(StorageEvent event);
+
 /// Класс TabController для управления вкладкой
 ///
 /// При создании эксземпляра объекта проверяет наличие в localStorage
@@ -22,6 +24,7 @@ const String WIN_TO_OPEN = 'windowToOpen';
 /// если вкладка не является мастером - запускает планировщик для проверки
 /// работоспособности мастера.
 class TabController {
+  static JsonCodec json = const JsonCodec();
   /// Требования к логгированию служебных событий вкладки
   bool _loggingIsEnabled;
 
@@ -38,7 +41,7 @@ class TabController {
   int _tabNumber = new DateTime.now().millisecondsSinceEpoch;
 
   /// Контроллер для управления событиями  вкладки
-  StreamController _onTabController;
+  StreamController<CustomEvent> _onTabController;
 
   /// Временной интервал для обновления времени мастера
   Duration _updatePeriod;
@@ -76,7 +79,7 @@ class TabController {
     this._localStorage = window.localStorage;
     this._sessionStorage = window.sessionStorage;
     this._prefix = prefix;
-    this._onTabController = new StreamController.broadcast();
+    this._onTabController = new StreamController<CustomEvent>.broadcast();
   }
 
   /// Управление событиями вкладки
@@ -200,7 +203,7 @@ class TabController {
     if (strMasterTime == null) {
       print('Время мастера не установлено. Обнуляем стек.');
       stack.remove(master);
-      putToLocalStorage('stack', JSON.encode(stack));
+      putToLocalStorage('stack', json.encode(stack));
       // Нет смысла в дальнеших шагах, прекращаем работу, но таймер не отменяем
       return;
     }
@@ -272,7 +275,7 @@ class TabController {
     List<int> stack = getStack();
     print('номер вкладки ${_tabNumber}');
     stack.add(_tabNumber);
-    putToLocalStorage('stack', JSON.encode(stack));
+    putToLocalStorage('stack', json.encode(stack));
     putToSessionStorage('current', _tabNumber.toString());
   }
 
@@ -354,7 +357,7 @@ class TabController {
   List<int> getStack() {
     String stack = getKey('stack');
     if (stack != null) {
-      return JSON.decode(stack);
+      return json.decode(stack).toList().cast<int>() as List<int>;
     } else {
       putToLocalStorage('stack', '[]');
       return [];
@@ -367,7 +370,7 @@ class TabController {
       try {
         return int.parse(value);
       } catch (e) {
-        print(e);
+        print(e.toString());
         return null;
       }
     }
@@ -379,7 +382,7 @@ class TabController {
       try {
         return _localStorage['$_prefix:$key'];
       } catch (e) {
-        print(e);
+        print(e.toString());
         return null;
       }
     }
@@ -393,8 +396,9 @@ class TabController {
   String getPrefix() => _prefix;
   /// Получить значение window.location.hash
   String getCurrentHash() => window.location.hash;
+
   /// Установить слушателей изменений в локальном хранилище на вкладке
-  void setStorageListener(listener) => window.onStorage.listen(listener);
+  void setStorageListener(StorageEventListener listener) => window.onStorage.listen(listener);
 
   bool isWindowToOpen(StorageEvent event) {
     if (isActive() &&
@@ -441,7 +445,7 @@ class TabController {
   List<int> removeFromStack(int number) {
     List<int> stack = getStack();
     stack.remove(number);
-    putToLocalStorage('stack', JSON.encode(stack));
+    putToLocalStorage('stack', json.encode(stack));
     return stack;
   }
   /// Послать сообщение в консоль
