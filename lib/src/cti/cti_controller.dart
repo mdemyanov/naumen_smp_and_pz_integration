@@ -27,6 +27,7 @@ final Map<String, String> transformRule = {
 final uid = new RegExp(r"#uuid:(\w+\$\d+)");
 
 class CtiController {
+  static String ver = '1.0.0';
   TabController _tab;
   VendorController _vendorController;
   String _prefix;

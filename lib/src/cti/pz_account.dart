@@ -8,6 +8,7 @@ final hasPort = new RegExp(r":\d+$");
 final eventAttr = new RegExp(r"\s(\w+)=\W([\+-=\w:/\.]+)\W");
 
 class VendorAccount {
+  static String ver = '1.0.0';
   static const String vendor = 'simpleCalls';
   static const String _clientType = 'itsm365';
   static const String _defaultPort = ':10150';

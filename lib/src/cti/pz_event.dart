@@ -2,6 +2,9 @@ import 'package:intl/intl.dart';
 
 final DateFormat formatter = new DateFormat('yyyy.MM.dd HH:mm:ss');
 
+final String endStateCode = 'closed';
+final String missedCallIconCode = 'missedCall';
+
 final Map<String,String> eventTypes = {
   '1': 'transfer',
   '2': 'incoming',
@@ -73,6 +76,10 @@ class VendorEvent {
         data['linkToRecord'] = record;
         data['toText'] = to;
         data['fromText'] = from;
+        data['state'] = endStateCode;
+        if(record == null && direction == '0') {
+          data['system_icon'] = missedCallIconCode;
+        }
         break;
       case 'transfer':
         break;

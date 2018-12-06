@@ -1,6 +1,8 @@
 import 'dart:html';
 import 'dart:core';
-import 'dart:js';
+//import 'dart:js';
+
+import 'package:js/js_util.dart' as js;
 
 import 'package:pzdart/src/tab/tab_controller.dart';
 import 'package:pzdart/src/cti/cti_controller.dart';
@@ -9,11 +11,17 @@ import 'package:pzdart/src/cti/pz_account.dart';
 final employee = new RegExp(r"employee\$\d+");
 
 void main() {
-  print('Запускаем модуль интеграции с Простыми звонками');
+  window.console.group('Простые звонки');
+  window.console.log('Запускаем модуль интеграции с Простыми звонками');
+  window.console.log('Версия контроллера: ${VendorAccount.ver} (${VendorAccount.vendor})');
+  window.console.log('Версия контроллера CTI: ${CtiController.ver}');
 //  var currentUser = 'employee\$000';
-  String currentUser = context['currentUser']['uuid'];
+//  String currentUser = context['currentUser']['uuid'];
+  dynamic currentUserParams = js.getProperty(window, 'currentUser');
+  String currentUser = js.getProperty(currentUserParams, 'uuid');
   if (!employee.hasMatch(currentUser)) {
-    print("Модуль не предназначен для суперпользователя: $currentUser");
+    window.console.log("Модуль не предназначен для суперпользователя: $currentUser");
+    window.console.groupEnd();
     return;
   }
   TabController currentTab = TabController('nsmp').watchWindow();
@@ -25,7 +33,8 @@ void main() {
 void runCTI(
     VendorAccount vendorAccount, TabController currentTab, String currentUser) {
   if (vendorAccount == null) {
-    print("Нет активного аккаунта для пользователя: $currentUser");
+    window.console.log("Нет активного аккаунта для пользователя: $currentUser");
+    window.console.groupEnd();
     return;
   }
   CtiController ctiController = CtiController(vendorAccount, currentTab);
@@ -37,9 +46,8 @@ void runCTI(
   window.onStorage.listen(ctiController.storageListener);
 //  Для поддержания обратной совместимости Groovy скриптов
 //  определяем контекстные переменные для вызова функций
-  context['pz'] = new JsObject.jsify(ctiController.bindings);
-  context['prostiezvonki'] = context['pz'];
-  ;
+  js.setProperty(window, 'pz', ctiController.bindings);
+  js.setProperty(window, 'prostiezvonki', ctiController.bindings);
 //  Подписываемся на события вкладки
   currentTab.onActions.listen((tabEvent) async {
     print(tabEvent.type);
