@@ -1,13 +1,19 @@
+/**
+ * @signedBy mdemyanov
+ * @date 30/11/2018
+ */
 import 'dart:html';
 import 'dart:core';
-//import 'dart:js';
 
 import 'package:js/js_util.dart' as js;
 
 import 'package:pzdart/src/tab/tab_controller.dart';
 import 'package:pzdart/src/cti/cti_controller.dart';
 import 'package:pzdart/src/cti/pz_account.dart';
-
+/**
+ * @signedBy mdemyanov
+ * @date 30/11/2018
+ */
 final employee = new RegExp(r"employee\$\d+");
 
 void main() {
@@ -46,8 +52,8 @@ void runCTI(
   window.onStorage.listen(ctiController.storageListener);
 //  Для поддержания обратной совместимости Groovy скриптов
 //  определяем контекстные переменные для вызова функций
-  js.setProperty(window, 'pz', ctiController.bindings);
-  js.setProperty(window, 'prostiezvonki', ctiController.bindings);
+  js.setProperty(window, 'pz', js.jsify(ctiController.bindings));
+  js.setProperty(window, 'prostiezvonki', js.jsify(ctiController.bindings));
 //  Подписываемся на события вкладки
   currentTab.onActions.listen((tabEvent) async {
     print(tabEvent.type);

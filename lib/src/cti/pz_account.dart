@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 
-import 'package:naumen_smp_jsapi/naumen_smp_jsapi.dart';
+import 'package:naumen_smp_rest/naumen_smp_rest.dart' as utils;
 
 final hasProtocol = new RegExp(r"^wss?p?://");
 final hasPort = new RegExp(r":\d+$");
@@ -29,8 +29,8 @@ class VendorAccount {
   }
 
   static Future<VendorAccount> get(String userId) async {
-    Map account = await SmpAPI.findFirst(
-        '/account\$$vendor/{employee:$userId,state: \'registered\'}');
+    var account = await utils.findFirst('account\$$vendor',
+        <String, String>{'employee': userId, 'state': 'registered'});
     if (account.length != 0) {
       return VendorAccount.fromMap(account);
     }
@@ -75,4 +75,16 @@ class VendorAccount {
     print('PZ: массив события - ${eventData}');
     return eventData;
   }
+
+  void connectionSuccessInfo() => utils.create('comment',
+      <String, String>{'source': uuid, 'text': 'Успешно подключился'});
+
+  void connectionClosedInfo() => utils.create(
+      'comment', <String, String>{'source': uuid, 'text': 'Отключился'});
+
+  void connectionFailedInfo(String error) => utils.create('comment',
+      <String, String>{'source': uuid, 'text': 'Ошибка подключения: $error'});
+
+  void eventInfo(String message) => utils
+      .create('comment', <String, String>{'source': uuid, 'text': message});
 }

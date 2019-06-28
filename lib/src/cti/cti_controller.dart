@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:html';
+import 'dart:js';
 
-import 'package:naumen_smp_jsapi/naumen_smp_jsapi.dart';
+import 'package:naumen_smp_rest/naumen_smp_rest.dart' as utils;
 
 import 'package:pzdart/src/tab/tab_controller.dart';
 import 'pz_controller.dart';
@@ -14,6 +15,10 @@ const String outgoingFqn = 'interaction\$outgoingCall';
 const String idHolder = 'idHolder';
 const String openWindow = 'openWindow';
 const String newCall = 'newCall';
+const Map<String, String> cardFqns = <String, String>{
+  'serviceCall': 'serviceCall',
+  'interaction': 'interaction'
+};
 
 final Map<String, String> transformRule = {
   'from': 'fromText',
@@ -24,7 +29,7 @@ final Map<String, String> transformRule = {
   'record': 'linkToRecord'
 };
 
-final uid = new RegExp(r"#uuid:(\w+\$\d+)");
+final uid = new RegExp(r"#uuid:((\w+)\$\d+)");
 
 class CtiController {
   static String ver = '1.0.0';
@@ -74,16 +79,11 @@ class CtiController {
         break;
     }
   }
-  // 'from': 'fromText',
-  //  'to': 'toText',
-  //  'startTime': 'startTime',
-  //  'endTime': 'endTime',
-  //  'duration': 'activeTime',
-  //  'record': 'linkToRecord'
+
   Future eventListener(VendorEvent event) async {
     Map<String, String> data = event.toMap();
-    Map interaction =
-        await SmpAPI.findFirst('/$interactionFqn/{$idHolder:${event.callID}}');
+    Map interaction = await utils
+        .findFirst(interactionFqn, <String, String>{'$idHolder': event.callID});
     bool openInteractionCard =
         (interaction == null || interaction.length == 0) ? true : false;
     switch (event.type) {
@@ -94,15 +94,16 @@ class CtiController {
       case 'transfer':
         break;
       case 'history':
-        interaction = await processEvent(data, interaction, event.fqn, event.callID);
+        interaction =
+            await processEvent(data, interaction, event.fqn, event.callID);
         windowOpenAction(openInteractionCard, interaction);
         break;
       case 'outgoingAnswer':
-        String serviceCall = getCallFromUUID('serviceCall', _tab);
+        Map<String, String> sourceCard = getCallFromUUID(cardFqns, _tab);
         print('Source ' + _tab.getKey('callFromCard').toString());
-        print('Scall ' + (serviceCall == null).toString());
-        if (serviceCall != null) {
-          data.addAll({'serviceCall': serviceCall});
+        print('CARD ' + (sourceCard == null).toString());
+        if (sourceCard != null) {
+          data.addAll(sourceCard);
         }
         interaction =
             await processEvent(data, interaction, outgoingFqn, event.callID);
@@ -121,9 +122,9 @@ class CtiController {
     print('interaction');
     if (interaction == null || interaction.length == 0) {
       data[idHolder] = callID;
-      interaction = await SmpAPI.create('/$fqn', data);
+      interaction = await utils.create('$fqn', data);
     } else {
-      SmpAPI.edit('/${interaction['UUID']}', data);
+      utils.edit('/${interaction['UUID']}', data);
     }
     print(interaction);
     return interaction;
@@ -157,24 +158,34 @@ class CtiController {
 
   Stream<CustomEvent> get callActions => _callActions.stream;
 
-  Map<String, dynamic> get bindings =>
-      <String, dynamic>{'call': makeCall, 'isConnected': connected};
+  Map<String, dynamic> get bindings => <String, dynamic>{
+        'call': allowInterop(makeCall),
+        'isConnected': connected
+      };
 }
 
-String getSourceUUID(String fqn) {
+Map<String, String> getSourceParams(Map<String, String> cards) {
   Match match = uid.firstMatch(window.location.hash);
   if (match != null) {
-    String uuid = match.group(1);
-    return uuid.contains(fqn) ? uuid : null;
+    return cards.map((attr, fqn) {
+      return (fqn == match.group(2) ? {attr: match.group(1)} : null)
+          as MapEntry<String, String>;
+    });
   }
   return null;
 }
 
-String getCallFromUUID(String fqn, TabController tab) {
+Map<String, String> getCallFromUUID(
+    Map<String, String> cards, TabController tab) {
+  Map<String, String> result = {};
   Match match = uid.firstMatch(tab.getKey('callFromCard').toString());
+  tab.removeFromLocalStorage('callFromCard');
   if (match != null) {
-    String uuid = match.group(1);
-    return uuid.contains(fqn) ? uuid : null;
+    cards.forEach((attr, fqn) {
+      if(fqn == match.group(2) ) {
+        result[attr] = match.group(1);
+      }
+    });
   }
-  return null;
+  return result;
 }

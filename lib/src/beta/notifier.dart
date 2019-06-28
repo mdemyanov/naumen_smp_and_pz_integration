@@ -16,7 +16,7 @@ final String nsmpNotifierContainer = '''
     box-sizing: border-box''';
 
 DivElement getNotifier(String x, String y) {
-  DivElement notifier = new Element.tag('div');
+  var notifier = Element.tag('div');
   notifier.id = 'nsmp-notifier-container';
   notifier.setAttribute('style', nsmpNotifierContainer);
   return notifier;

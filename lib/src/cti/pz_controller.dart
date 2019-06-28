@@ -18,6 +18,7 @@ class VendorController {
   Stream<VendorEvent> get events => _streamController.stream;
 
   bool get connected => _connected;
+  String get accountUid => _vendorAccount.uuid;
 
   void processEvent(MessageEvent event) {
     print('PZ: новое событие - ${event.data}');
@@ -41,9 +42,12 @@ class VendorController {
         _webSocket.onOpen.listen((_) => sendMessage(request));
       }
       _webSocket.onMessage.listen(processEvent);
+      _webSocket.onError.listen((Event e) => _vendorAccount.eventInfo('Проблема с WS каналом: ${e.toString()}'));
+      _vendorAccount.connectionSuccessInfo();
     } catch (e) {
       handleError(
           'При подключении к $connectionUrl возникла ошибка', e.toString());
+      _vendorAccount.connectionFailedInfo(e.toString());
     }
     return _connected;
   }
@@ -91,11 +95,11 @@ class VendorController {
       sendWsMessage(prepareRequest('Transfer', number));
 
   bool close() {
-    bool closed = false;
     if (_connected) {
       try {
         _webSocket.close();
-        closed = true;
+        _connected = false;
+        _vendorAccount.connectionClosedInfo();
         print('PZ: Отключился от ${_vendorAccount.connectionUrl}');
       } catch (e) {
         handleError(
@@ -103,7 +107,7 @@ class VendorController {
             e.toString());
       }
     }
-    return closed;
+    return _connected;
   }
 
   bool disconnect() => close();
@@ -135,9 +139,5 @@ class VendorController {
 
   void printEvent(String rawEvent) {
     window.console.info(rawEvent);
-  }
-
-  Map<String, dynamic> getBindings() {
-    return <String, dynamic>{'disconnect': disconnect};
   }
 }
