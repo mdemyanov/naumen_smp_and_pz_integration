@@ -13,6 +13,7 @@ import 'package:pzdart/src/cti/pz_account.dart';
 /**
  * @signedBy mdemyanov
  * @date 30/11/2018
+ * 33456
  */
 final employee = new RegExp(r"employee\$\d+");
 
@@ -24,7 +25,7 @@ void main() {
 //  var currentUser = 'employee\$000';
 //  String currentUser = context['currentUser']['uuid'];
   dynamic currentUserParams = js.getProperty(window, 'currentUser');
-  String currentUser = js.getProperty(currentUserParams, 'uuid');
+  String currentUser = js.getProperty(currentUserParams, 'uuid') as String;
   if (!employee.hasMatch(currentUser)) {
     window.console.log("Модуль не предназначен для суперпользователя: $currentUser");
     window.console.groupEnd();
