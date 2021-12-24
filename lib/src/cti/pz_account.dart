@@ -8,7 +8,7 @@ final hasPort = new RegExp(r":\d+$");
 final eventAttr = new RegExp(r"\s(\w+)=\W([\+-=\w:/\.]+)\W");
 
 class VendorAccount {
-  static String ver = '1.0.0';
+  static String ver = '1.0.1';
   static const String vendor = 'simpleCalls';
   static const String _clientType = 'itsm365';
   static const String _defaultPort = ':10150';
@@ -73,14 +73,15 @@ class VendorAccount {
       eventData[attr.group(1)] = attr.group(2);
     });
     print('PZ: массив события - ${eventData}');
+    print('PZ: массив события - ${eventData}');
     return eventData;
   }
 
   void connectionSuccessInfo() => utils.create('comment',
       <String, String>{'source': uuid, 'text': 'Успешно подключился'});
 
-  void connectionClosedInfo() => utils.create(
-      'comment', <String, String>{'source': uuid, 'text': 'Отключился'});
+  void connectionClosedInfo(List<int> stack) => utils.create(
+      'comment', <String, String>{'source': uuid, 'text': 'Отключился ' + stack.toString()});
 
   void connectionFailedInfo(String error) => utils.create('comment',
       <String, String>{'source': uuid, 'text': 'Ошибка подключения: $error'});

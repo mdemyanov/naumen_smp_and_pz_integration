@@ -2,33 +2,70 @@ import 'dart:html';
 import 'dart:async';
 
 import 'pz_account.dart';
-import 'pz_event.dart';
+//import 'pz_event.dart';
 
 class VendorController {
   bool _connected = false;
   WebSocket _webSocket;
-  StreamController<VendorEvent> _streamController;
+  StreamController<Map<String, String>> _streamController;
   VendorAccount _vendorAccount;
 
   VendorController(VendorAccount vendorAccount) {
     this._vendorAccount = vendorAccount;
-    this._streamController = new StreamController<VendorEvent>.broadcast();
+    this._streamController =
+        new StreamController<Map<String, String>>.broadcast();
   }
 
-  Stream<VendorEvent> get events => _streamController.stream;
+  Stream<Map<String, String>> get events => _streamController.stream;
 
-  bool get connected => _connected;
+  bool get connected {
+    print('we connection state is ${_webSocket?.readyState}');
+    if(_webSocket?.readyState == 1) {
+      return _connected = true;
+    }
+    return _connected = false;
+  }
+  bool get connecting => _webSocket?.readyState == 0;
+
+  bool get used => _webSocket?.readyState != null;
+
   String get accountUid => _vendorAccount.uuid;
 
   void processEvent(MessageEvent event) {
     print('PZ: новое событие - ${event.data}');
-    VendorEvent vendorEvent =
-        VendorEvent(_vendorAccount.parseEvent(event.data.toString()));
-    print('Тип ${vendorEvent.type}, ID ${vendorEvent.callID}');
-    if (vendorEvent.type != null) {
-      _streamController.add(vendorEvent);
-    } else {
-      print('PZ: неопознанное событие');
+    _streamController.add(_vendorAccount.parseEvent(event.data.toString()));
+  }
+
+  bool reconnect([String request = null]) {
+    switch(_webSocket?.readyState) {
+      case 3:
+        _webSocket = null;
+        String connectionUrl = _vendorAccount.connectionUrl;
+        try {
+          _webSocket = new WebSocket(connectionUrl);
+          if (request != null) {
+            _webSocket.onOpen.listen((_) => sendMessage(request));
+          }
+          _connected = true;
+          _webSocket.onMessage.listen(processEvent);
+
+          _webSocket.onClose.listen((CloseEvent e) =>
+              _vendorAccount.eventInfo('Отключен от канала: ${e.reason}'));
+
+          _webSocket.onError.listen((Event e) {
+            _vendorAccount.eventInfo('Проблема с WS каналом: ${e.type}');
+            connect(request);
+          });
+          _vendorAccount.connectionSuccessInfo();
+        } catch (e) {
+          handleError(
+              'При подключении к $connectionUrl возникла ошибка', e.toString());
+          _vendorAccount.connectionFailedInfo(e.toString());
+        }
+        return _connected;
+        break;
+        default:
+          return false;
     }
   }
 
@@ -42,7 +79,14 @@ class VendorController {
         _webSocket.onOpen.listen((_) => sendMessage(request));
       }
       _webSocket.onMessage.listen(processEvent);
-      _webSocket.onError.listen((Event e) => _vendorAccount.eventInfo('Проблема с WS каналом: ${e.toString()}'));
+
+      _webSocket.onClose.listen((CloseEvent e) =>
+          _vendorAccount.eventInfo('Отключен от канала: ${e.reason}'));
+
+      _webSocket.onError.listen((Event e) {
+        _vendorAccount.eventInfo('Проблема с WS каналом: ${e.type}');
+        connect(request);
+      });
       _vendorAccount.connectionSuccessInfo();
     } catch (e) {
       handleError(
@@ -94,12 +138,12 @@ class VendorController {
   void transfer(String number) =>
       sendWsMessage(prepareRequest('Transfer', number));
 
-  bool close() {
+  bool close(List<int> stack) {
     if (_connected) {
       try {
-        _webSocket.close();
+        _webSocket.close(4001, 'User close or refresh tab');
         _connected = false;
-        _vendorAccount.connectionClosedInfo();
+        _vendorAccount.connectionClosedInfo(stack);
         print('PZ: Отключился от ${_vendorAccount.connectionUrl}');
       } catch (e) {
         handleError(
@@ -110,7 +154,7 @@ class VendorController {
     return _connected;
   }
 
-  bool disconnect() => close();
+  bool disconnect(List<int> stack) => close(stack);
 
   bool sendWsMessage(String request) {
     bool sent = false;
