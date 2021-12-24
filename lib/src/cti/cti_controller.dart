@@ -5,9 +5,9 @@ import 'dart:js';
 import 'package:naumen_smp_rest/naumen_smp_rest.dart' as utils;
 
 import 'package:pzdart/src/tab/tab_controller.dart';
+import 'package:pzdart/src/nsmp/nsmp_response.dart';
 import 'pz_controller.dart';
 import 'pz_account.dart';
-import 'pz_event.dart';
 
 const String interactionFqn = 'interaction';
 const String incomingFqn = 'interaction\$incomingCall';
@@ -20,19 +20,10 @@ const Map<String, String> cardFqns = <String, String>{
   'interaction': 'interaction'
 };
 
-final Map<String, String> transformRule = {
-  'from': 'fromText',
-  'to': 'toText',
-  'startTime': 'startTime',
-  'endTime': 'endTime',
-  'duration': 'activeTime',
-  'record': 'linkToRecord'
-};
-
 final uid = new RegExp(r"#uuid:((\w+)\$\d+)");
 
 class CtiController {
-  static String ver = '1.0.0';
+  static String ver = '1.1.0';
   TabController _tab;
   VendorController _vendorController;
   String _prefix;
@@ -47,11 +38,20 @@ class CtiController {
 
   bool get connected => _vendorController.connected;
 
+  bool reconnect() => _vendorController.reconnect();
+
   bool connect() {
     if (connected) {
       return true;
     }
-    if (_vendorController.connect()) {
+    if (_vendorController.connecting) {
+      window.console.warn('alrady connectiing...');
+      return true;
+    }
+    if(_vendorController.used) {
+      _vendorController.reconnect();
+      //_vendorController.events.listen(eventListener);
+    } else if (_vendorController.connect()) {
       callActions.listen(_vendorController.actionListener);
       _vendorController.events.listen(eventListener);
       return true;
@@ -59,7 +59,7 @@ class CtiController {
     return false;
   }
 
-  bool disconnect() => _vendorController.disconnect();
+  bool disconnect(List<int> stack) => _vendorController.disconnect(stack);
 
   void storageListener(StorageEvent event) {
     String key = event.key.split('$_prefix:').last;
@@ -80,65 +80,40 @@ class CtiController {
     }
   }
 
-  Future eventListener(VendorEvent event) async {
-    Map<String, String> data = event.toMap();
-    Map interaction = await utils
-        .findFirst(interactionFqn, <String, String>{'$idHolder': event.callID});
-    bool openInteractionCard =
-        (interaction == null || interaction.length == 0) ? true : false;
-    switch (event.type) {
-      case 'incoming':
-        break;
-      case 'outgoing':
-        break;
-      case 'transfer':
-        break;
-      case 'history':
-        interaction =
-            await processEvent(data, interaction, event.fqn, event.callID);
-        windowOpenAction(openInteractionCard, interaction);
-        break;
-      case 'outgoingAnswer':
-        Map<String, String> sourceCard = getCallFromUUID(cardFqns, _tab);
-        print('Source ' + _tab.getKey('callFromCard').toString());
-        print('CARD ' + (sourceCard == null).toString());
-        if (sourceCard != null) {
-          data.addAll(sourceCard);
-        }
-        interaction =
-            await processEvent(data, interaction, outgoingFqn, event.callID);
-        windowOpenAction(true, interaction);
-        break;
-      case 'incomingAnswer':
-        interaction =
-            await processEvent(data, interaction, incomingFqn, event.callID);
-        windowOpenAction(true, interaction);
-        break;
+  Future eventListener(Map<String, String> event) async {
+    if(event.containsKey('direction') && event['direction'] == '1') {
+      event.addAll(getCallFromUUID(cardFqns, _tab));
+    }
+    try {
+      processEvent(event);
+    } catch (e) {
+      handleError(e);
     }
   }
 
-  Future<Map> processEvent(
-      Map data, Map interaction, String fqn, String callID) async {
-    print('interaction');
-    if (interaction == null || interaction.length == 0) {
-      data[idHolder] = callID;
-      interaction = await utils.create('$fqn', data);
-    } else {
-      utils.edit('/${interaction['UUID']}', data);
+  Future<Null> processEvent(Map<String, String> event) async {
+    NsmpResponse response = NsmpResponse.fromJson(await utils.execPostContent(
+        'pzRest.call', event) as Map<String, dynamic>);
+    if (response.result == 'ok') {
+      switch (response.data.action) {
+        case 'openNewWindow':
+          windowOpenAction(true, response.data);
+          break;
+      }
     }
-    print(interaction);
-    return interaction;
+
+      return null;
   }
 
-  void windowOpenAction(bool openInteractionCard, Map interaction) {
+  void windowOpenAction(bool openInteractionCard, Data interaction) {
     if (openInteractionCard) {
       if (_tab.isActive()) {
         print('Open window');
-        _tab.openWindow('./#uuid:${interaction['UUID']}',
-            '../#uuid:${interaction['title']}');
+        _tab.openWindow('./#uuid:${interaction.UUID}',
+            '../#uuid:${interaction.title}');
       } else {
         print('put to storage');
-        _tab.putToLocalStorage(openWindow, './#uuid:${interaction['UUID']}');
+        _tab.putToLocalStorage(openWindow, './#uuid:${interaction.UUID}');
       }
     }
   }
@@ -182,10 +157,13 @@ Map<String, String> getCallFromUUID(
   tab.removeFromLocalStorage('callFromCard');
   if (match != null) {
     cards.forEach((attr, fqn) {
-      if(fqn == match.group(2) ) {
+      if (fqn == match.group(2)) {
         result[attr] = match.group(1);
       }
     });
   }
   return result;
 }
+
+void handleError(dynamic e, [String msg = 'PZ: ']) =>
+    window.console.error('$msg: ${e.toString()}');

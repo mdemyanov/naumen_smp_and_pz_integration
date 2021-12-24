@@ -25,6 +25,8 @@ typedef void StorageEventListener(StorageEvent event);
 /// работоспособности мастера.
 class TabController {
   static JsonCodec json = const JsonCodec();
+  Location _location;
+
   /// Требования к логгированию служебных событий вкладки
   bool _loggingIsEnabled;
 
@@ -68,9 +70,9 @@ class TabController {
   /// Конструктор определяет приватные параметры контроллера вкладки и
   /// инициирует контроллер потока для обмена событиями.
   TabController(String prefix,
-      [Duration updatePeriod = const Duration(seconds: 4),
-      Duration checkPeriod = const Duration(seconds: 8),
-      int timeDiff = 9,
+      [Duration updatePeriod = const Duration(seconds: 10),
+      Duration checkPeriod = const Duration(seconds: 20),
+      int timeDiff = 20,
       bool loggingIsEnabled = true]) {
     this._updatePeriod = updatePeriod;
     this._checkPeriod = checkPeriod;
@@ -78,6 +80,7 @@ class TabController {
     this._loggingIsEnabled = loggingIsEnabled;
     this._localStorage = window.localStorage;
     this._sessionStorage = window.sessionStorage;
+    this._location = window.location;
     this._prefix = prefix;
     this._onTabController = new StreamController<CustomEvent>.broadcast();
   }
@@ -94,6 +97,13 @@ class TabController {
     window.onBlur.listen(checkBlur);
     window.onUnload.listen(checkUnload);
     window.onBeforeUnload.listen(checkRefresh);
+    return this;
+  }
+
+  TabController updateSessionHash(String sessionHash) {
+    if (getKey('sessionHash') != sessionHash) {
+      putToLocalStorage('sessionHash', sessionHash);
+    }
     return this;
   }
 
@@ -132,8 +142,19 @@ class TabController {
       putToLocalStorage('masterTime', new DateTime.now().toIso8601String());
       _onTabController.add(new CustomEvent(MASTER));
     }
+    //    Проверить обновление стека - нужен ли выбор мастера
     if (isDead()) {
+      _onTabController.add(new CustomEvent(SLAVE));
+      if(_updateMasterTime?.isActive == true) {
+        _updateMasterTime.cancel();
+      }
       addToStorage();
+      checkMasterTime();
+      // window.location.reload();
+    }
+    if (isOldSession(event)) {
+      //new Timer(new Duration(seconds: 15), () {window.location.reload();});
+      window.location.reload();
     }
   }
 
@@ -142,17 +163,26 @@ class TabController {
   /// Метод обновляет время вкладки в локальном хранилище, затем запускает
   /// планировщик, который обновляет время с заданным для вкладки интервалом
   void updateMasterTime() {
-    putToLocalStorage('masterTime', new DateTime.now().toIso8601String());
+    DateTime now = new DateTime.now();
+    putToLocalStorage('masterTime', now.toIso8601String());
     if (_updateMasterTime?.isActive != true) {
-      _updateMasterTime = new Timer.periodic(_updatePeriod, (Timer t) {
-        print('updateMasterTime');
-        putToLocalStorage('masterTime', new DateTime.now().toIso8601String());
-      });
+      print('Запускаем обновление времени мастера ${now}');
+      _updateMasterTime =
+          new Timer.periodic(_updatePeriod, updateMasterTimeRule);
+    } else {
+      print('Периодическое обновление времени мастера уже запущено ${now}');
     }
   }
 
+  void updateMasterTimeRule(Timer t) {
+    // Получаем текущее значение времени
+    DateTime now = new DateTime.now();
+    print('Обвноленное время мастера ${now}');
+    putToLocalStorage('masterTime', now.toIso8601String());
+  }
+
   void checkMasterTime() {
-    checkMasterTimeRule(_checkMasterTime);
+    //checkMasterTimeRule(_checkMasterTime);
     if (_checkMasterTime?.isActive != true) {
       _checkMasterTime = new Timer.periodic(_checkPeriod, checkMasterTimeRule);
     }
@@ -194,32 +224,44 @@ class TabController {
       if (t?.isActive == true) {
         t.cancel();
       }
+      print('Вкладка - мастер, отменяем проверку');
       return;
+    }
+    print('Вкладка - не мастер, продолжаем проверку');
+    // Получаем текущее значение времени
+    DateTime now = new DateTime.now();
+    String strLastCheckTime = getKey('lastCheckTime');
+    if(strLastCheckTime != null) {
+      DateTime lastCheckTime = DateTime.parse(strLastCheckTime);
+      int checkTimeDiff = now.difference(lastCheckTime).inSeconds;
+      if(checkTimeDiff < _checkPeriod.inSeconds) {
+        print('Слишком часто - завершаем проверку ${now}');
+        return;
+      }
     }
     int master = getMaster();
     String strMasterTime = getKey('masterTime');
     List<int> stack = getStack();
     // Если время мастера не установлено - удаляем мастера из стека
     if (strMasterTime == null) {
-      print('Время мастера не установлено. Обнуляем стек.');
+      print('Время мастера не установлено. Обновляем стек.');
       stack.remove(master);
       putToLocalStorage('stack', json.encode(stack));
       // Нет смысла в дальнеших шагах, прекращаем работу, но таймер не отменяем
-      return;
+      return null;
     }
     // Коневертируем время мастера в тип ДатаВремя
     DateTime masterTime = DateTime.parse(strMasterTime);
-    // Получаем текущее значение времени
-    DateTime now = new DateTime.now();
     // Определяем значение разницы времени мастера в скундах
     int timeDiff = now.difference(masterTime).inSeconds;
     print("Вкладка ${_tabNumber} проверяет время: ${now}");
-    if (!isMaster() && timeDiff >= 9) {
-      print("Время мастера ${master} прошло: ${masterTime} - ${now} = ${timeDiff}");
+    putToLocalStorage('lastCheckTime', now.toIso8601String());
+    if (timeDiff >= _timeDiff) {
+      print('Время мастера ${master} прошло: ${masterTime} - ${now} = ${timeDiff}');
       stack = removeFromStack(master);
       removeFromLocalStorage('master');
       if (checkMaster()) {
-        print("Вкладка ${_tabNumber} стала мастером.");
+        print('Вкладка ${_tabNumber} стала мастером.');
         putToLocalStorage('masterTime', new DateTime.now().toIso8601String());
         _onTabController.add(new CustomEvent(MASTER));
       }
@@ -288,20 +330,22 @@ class TabController {
     if (getKey('master') == null && stack.length == 0) {
       print('Нет упоминаний о мастере, запишем текущую вкладку');
       putToLocalStorage('master', _tabNumber.toString());
+      putToLocalStorage('masterTime', new DateTime.now().toIso8601String());
       return true;
     }
     if (checkMasterDead()) {
       print('Нет мастера, берем самую старую');
       putToLocalStorage('master', stack.reduce(min).toString());
+      putToLocalStorage('masterTime', new DateTime.now().toIso8601String());
     }
     return isMaster();
   }
+
   /// Проверить существование мастера
   ///
   /// Возвращает правду, если нет упоминаний о мастере
   bool checkMasterDead() {
-    if (isMaster())
-      return false;
+    if (isMaster()) return false;
     int master = getMaster();
     if (master != null) {
       print("Вкладка ${_tabNumber} ищет мастера ${master}.");
@@ -311,6 +355,7 @@ class TabController {
     print('Отсутствует запись о мастере!');
     return true;
   }
+
   /// Проверить стала ли вкладка новым мастером
   ///
   /// Возвращает правду, если вкладка в настоящий момент является мастером
@@ -363,6 +408,7 @@ class TabController {
       return [];
     }
   }
+
   /// Получить значение из localStorage и привести его к int
   int getIntKey(String key) {
     String value = getKey(key);
@@ -376,6 +422,7 @@ class TabController {
     }
     return null;
   }
+
   /// Получить значение из localStorage
   String getKey(String key) {
     if (_localStorage.containsKey('$_prefix:$key')) {
@@ -388,17 +435,22 @@ class TabController {
     }
     return null;
   }
+
   /// Получить значение master из localStorage
   int getMaster() => getIntKey('master');
+
   /// Получить значение active из localStorage
   int getActive() => getIntKey('active');
+
   /// Получить значение _prefix
   String getPrefix() => _prefix;
+
   /// Получить значение window.location.hash
   String getCurrentHash() => window.location.hash;
 
   /// Установить слушателей изменений в локальном хранилище на вкладке
-  void setStorageListener(StorageEventListener listener) => window.onStorage.listen(listener);
+  void setStorageListener(StorageEventListener listener) =>
+      window.onStorage.listen(listener);
 
   bool isWindowToOpen(StorageEvent event) {
     if (isActive() &&
@@ -410,6 +462,7 @@ class TabController {
     }
     return false;
   }
+
   /// Является ли вкладка активной
   ///
   /// Возвращает правду, если вкладка активная или является мастером,
@@ -421,26 +474,43 @@ class TabController {
     }
     return isMaster();
   }
+
   /// Является ли вкладка мастером
   bool isMaster() => getMaster() == _tabNumber;
+
   /// Можно ли назначить вкладку мастером
   bool isNewMaster() => getStack().reduce(min) == _tabNumber;
+
   /// Является ли вкладка мертвой
   ///
   /// Пользователь не закрывал вкладку, но она потерялась из стека
   bool isDead() => !getStack().contains(_tabNumber) && !_removed;
+
+  /// Является ли сессия вкладки устаревшей
+  ///
+  /// Сессия вкладки устарела и страницу необходимо обновить
+  bool isOldSession(StorageEvent event) {
+    return event.key == '$_prefix:sessionHash' &&
+        event.newValue != null &&
+        event.newValue != event.oldValue;
+  }
+
   /// Поместить [value] в ячейку [key] localStorage
   void putToLocalStorage(String key, String value) =>
       _localStorage['$_prefix:$key'] = value;
+
   /// Поместить [value] в ячейку [key] sessionStorage
   void putToSessionStorage(String key, String value) =>
       _sessionStorage['$_prefix:$key'] = value;
+
   /// Удалить ключ [key] из localStorage
   void removeFromLocalStorage(String key) =>
       _localStorage.remove('$_prefix:$key');
+
   /// Удалить ключ [key] из sessionStorage
   void removeFromSessionStorage(String key) =>
       _sessionStorage.remove('$_prefix:$key');
+
   /// Удалить [number] из стека в локальном хранилище
   List<int> removeFromStack(int number) {
     List<int> stack = getStack();
@@ -448,15 +518,22 @@ class TabController {
     putToLocalStorage('stack', json.encode(stack));
     return stack;
   }
+
   /// Послать сообщение в консоль
   void print(String message) {
     if (_loggingIsEnabled) {
       window.console.log(message);
     }
   }
+
+  /// Перезагрузить страницу
+  void reload() {
+    _location.reload();
+  }
 }
 
 /// Найти масимальный по значению элемент
 int max(int a, int b) => a > b ? a : b;
+
 /// Найти минимальный по значению элемент
 int min(int a, int b) => a < b ? a : b;
