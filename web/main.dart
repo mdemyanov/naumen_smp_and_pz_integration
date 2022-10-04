@@ -2,17 +2,27 @@
  * @signedBy mdemyanov
  * @date 30/11/2018
  */
+@JS()
 import 'dart:html';
-import 'dart:core';
+//import 'dart:core';
 import 'dart:async';
 
-import 'package:js/js_util.dart' as js;
+//import 'package:async/async.dart';
+import 'package:js/js.dart';
+import 'package:js/js_util.dart';
 
 import 'package:pzdart/src/tab/tab_controller.dart';
 import 'package:pzdart/src/cti/cti_controller.dart';
 import 'package:pzdart/src/cti/pz_account.dart';
 
 final employee = new RegExp(r"employee\$\d+");
+
+@JS('window')
+external dynamic get _window;
+
+dynamic getWindowProperty(String name) {
+  return getProperty<dynamic>(_window, name);
+}
 
 void main() {
   window.console.group('Простые звонки');
@@ -21,9 +31,9 @@ void main() {
   window.console.log('Версия контроллера CTI: ${CtiController.ver}');
 //  var currentUser = 'employee\$000';
 //  String currentUser = context['currentUser']['uuid'];
-  dynamic currentUserParams = js.getProperty(window, 'currentUser');
-  String sessionHash = js.getProperty(window, 'sessionHash') as String;
-  String currentUser = js.getProperty(currentUserParams, 'uuid') as String;
+  dynamic currentUserParams = getWindowProperty('currentUser');
+  String sessionHash = getWindowProperty('sessionHash') as String;
+  String currentUser = getProperty<String>(currentUserParams, 'uuid');
   if (!employee.hasMatch(currentUser)) {
     window.console.log("Модуль не предназначен для суперпользователя: $currentUser");
     window.console.groupEnd();
@@ -55,8 +65,8 @@ void runCTI(
   window.onStorage.listen(ctiController.storageListener);
 //  Для поддержания обратной совместимости Groovy скриптов
 //  определяем контекстные переменные для вызова функций
-  js.setProperty(window, 'pz', js.jsify(ctiController.bindings));
-  js.setProperty(window, 'prostiezvonki', js.jsify(ctiController.bindings));
+  setProperty<dynamic>(_window, 'pz', jsify(ctiController.bindings));
+  setProperty<dynamic>(_window, 'prostiezvonki', jsify(ctiController.bindings));
 //  Подписываемся на события вкладки
   currentTab.onActions.listen((tabEvent) async {
     print(tabEvent.type);
