@@ -49,14 +49,14 @@ class VendorController {
           _connected = true;
           _webSocket.onMessage.listen(processEvent);
 
-          _webSocket.onClose.listen((CloseEvent e) =>
-              _vendorAccount.eventInfo('Отключен от канала: ${e.reason}'));
+          // _webSocket.onClose.listen((CloseEvent e) =>
+          //     _vendorAccount.eventInfo('Отключен от канала: ${e.reason}'));
 
           _webSocket.onError.listen((Event e) {
             _vendorAccount.eventInfo('Проблема с WS каналом: ${e.type}');
             connect(request);
           });
-          _vendorAccount.connectionSuccessInfo();
+          // _vendorAccount.connectionSuccessInfo();
         } catch (e) {
           handleError(
               'При подключении к $connectionUrl возникла ошибка', e.toString());
@@ -80,14 +80,14 @@ class VendorController {
       }
       _webSocket.onMessage.listen(processEvent);
 
-      _webSocket.onClose.listen((CloseEvent e) =>
-          _vendorAccount.eventInfo('Отключен от канала: ${e.reason}'));
+      // _webSocket.onClose.listen((CloseEvent e) =>
+      //     _vendorAccount.eventInfo('Отключен от канала: ${e.reason}'));
 
       _webSocket.onError.listen((Event e) {
         _vendorAccount.eventInfo('Проблема с WS каналом: ${e.type}');
         connect(request);
       });
-      _vendorAccount.connectionSuccessInfo();
+      // _vendorAccount.connectionSuccessInfo();
     } catch (e) {
       handleError(
           'При подключении к $connectionUrl возникла ошибка', e.toString());
@@ -143,7 +143,7 @@ class VendorController {
       try {
         _webSocket.close(4001, 'User close or refresh tab');
         _connected = false;
-        _vendorAccount.connectionClosedInfo(stack);
+        // _vendorAccount.connectionClosedInfo(stack);
         print('PZ: Отключился от ${_vendorAccount.connectionUrl}');
       } catch (e) {
         handleError(
